@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>alpine-101</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app" x-data="app()" x-init="init()">
+      <header class="topbar">
+        <div class="brand">
+          <strong>*-101 Alpine Client</strong>
+          <span class="badge" x-text="modeLabel"></span>
+        </div>
+        <nav class="nav">
+          <a class="nav-link" href="#/items" :class="{ active: isActive('/items') }">Items</a>
+          <a class="nav-link" href="#/categories" :class="{ active: isActive('/categories') }">Categories</a>
+          <a class="nav-link" href="#/stats" :class="{ active: isActive('/stats') }">Stats</a>
+          <a class="nav-link" href="#/settings" :class="{ active: isActive('/settings') }">Settings</a>
+          <template x-if="!isAuthenticated">
+            <a class="nav-link" href="#/login" :class="{ active: isActive('/login') }">Sign in</a>
+          </template>
+          <template x-if="isAuthenticated">
+            <button class="linkish" type="button" @click="logout()">Sign out</button>
+          </template>
+        </nav>
+      </header>
+
+      <main class="main">
+        <!-- Items list -->
+        <section x-show="route.name === 'items'" x-cloak>
+          <div class="toolbar space">
+            <div>
+              <h1>Items</h1>
+              <p class="muted">
+                <span x-text="useMock ? 'Mock mode' : 'Live API'"></span>
+                ·
+                <span x-text="baseUrl"></span>
+              </p>
+            </div>
+            <a x-show="canWrite" class="button" href="#/items/new">Create item</a>
+          </div>
+
+          <div x-show="!canWrite" class="banner">Sign in to create, edit, or delete items.</div>
+          <p x-show="itemsError" class="error" x-text="itemsError"></p>
+
+          <div class="panel filters">
+            <label class="field">
+              <span>Name contains</span>
+              <input x-model="nameContains" placeholder="Search name" @keyup.enter="applyItemFilters()" />
+            </label>
+            <label class="field">
+              <span>Category</span>
+              <select x-model="categoryFilter">
+                <option value="">All categories</option>
+                <template x-for="category in categories" :key="category.id">
+                  <option :value="category.id" x-text="category.name"></option>
+                </template>
+              </select>
+            </label>
+            <label class="field">
+              <span>Min price</span>
+              <input x-model="minPrice" type="number" min="0" step="0.01" placeholder="0" />
+            </label>
+            <label class="field">
+              <span>Max price</span>
+              <input x-model="maxPrice" type="number" min="0" step="0.01" placeholder="100" />
+            </label>
+            <div class="field" style="align-self: end">
+              <button type="button" @click="applyItemFilters()">Apply filters</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <ul class="list">
+              <template x-for="item in items" :key="item.id">
+                <li>
+                  <a :href="`#/items/${item.id}`">
+                    <strong x-text="item.name"></strong>
+                    <div class="muted" x-text="item.category?.name ?? 'Uncategorized'"></div>
+                  </a>
+                  <span x-text="money(item.price)"></span>
+                </li>
+              </template>
+            </ul>
+            <p x-show="!itemsLoading && !items.length">No items yet.</p>
+            <p x-show="itemsLoading" class="muted">Loading…</p>
+            <button
+              x-show="hasMoreItems"
+              class="secondary"
+              type="button"
+              :disabled="itemsLoading"
+              @click="loadMoreItems()"
+            >
+              Load more (<span x-text="items.length"></span>/<span x-text="itemsTotal"></span>)
+            </button>
+          </div>
+        </section>
+
+        <!-- Item create / edit -->
+        <section class="panel" x-show="route.name === 'item-create' || route.name === 'item-edit'" x-cloak>
+          <h1 x-text="route.name === 'item-edit' ? 'Edit item' : 'Create item'"></h1>
+          <form @submit.prevent="submitItemForm()">
+            <label class="field">
+              <span>Name</span>
+              <input x-model="itemForm.name" required />
+            </label>
+            <label class="field">
+              <span>Price</span>
+              <input x-model="itemForm.price" type="number" min="0.01" step="0.01" required />
+            </label>
+            <label class="field">
+              <span>Category</span>
+              <select x-model="itemForm.category_id">
+                <option value="">Uncategorized</option>
+                <template x-for="category in categories" :key="category.id">
+                  <option :value="category.id" x-text="category.name"></option>
+                </template>
+              </select>
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <textarea x-model="itemForm.description" rows="3"></textarea>
+            </label>
+            <p x-show="formError" class="error" x-text="formError"></p>
+            <button type="submit" :disabled="formSaving" x-text="route.name === 'item-edit' ? 'Save' : 'Create'"></button>
+          </form>
+        </section>
+
+        <!-- Item detail -->
+        <section class="panel" x-show="route.name === 'item-detail'" x-cloak>
+          <template x-if="currentItem">
+            <div>
+              <div class="toolbar space">
+                <h1 x-text="currentItem.name"></h1>
+                <div class="actions" x-show="canWrite">
+                  <a class="button secondary" :href="`#/items/${currentItem.id}/edit`">Edit</a>
+                  <button class="secondary" type="button" @click="deleteItem(currentItem.id)">Delete</button>
+                </div>
+              </div>
+              <p><strong>Price:</strong> <span x-text="money(currentItem.price)"></span></p>
+              <p>
+                <strong>Category:</strong>
+                <span x-text="currentItem.category?.name ?? 'Uncategorized'"></span>
+              </p>
+              <p>
+                <strong>Description:</strong>
+                <span x-text="currentItem.description || '—'"></span>
+              </p>
+              <a href="#/items">← Back to items</a>
+            </div>
+          </template>
+          <p x-show="detailError" class="error" x-text="detailError"></p>
+          <p x-show="!currentItem && !detailError">Loading…</p>
+        </section>
+
+        <!-- Categories list -->
+        <section x-show="route.name === 'categories'" x-cloak>
+          <div class="toolbar space">
+            <h1>Categories</h1>
+            <a x-show="canWrite" class="button" href="#/categories/new">Create category</a>
+          </div>
+          <div x-show="!canWrite" class="banner">Sign in to create, edit, or delete categories.</div>
+          <p x-show="categoriesError" class="error" x-text="categoriesError"></p>
+          <div class="panel">
+            <ul class="list">
+              <template x-for="category in categories" :key="category.id">
+                <li>
+                  <a :href="`#/categories/${category.id}`">
+                    <strong x-text="category.name"></strong>
+                    <div class="muted" x-text="category.description || 'No description'"></div>
+                  </a>
+                </li>
+              </template>
+            </ul>
+            <p x-show="!categoriesLoading && !categories.length">No categories yet.</p>
+          </div>
+        </section>
+
+        <!-- Category create / edit -->
+        <section class="panel" x-show="route.name === 'category-create' || route.name === 'category-edit'" x-cloak>
+          <h1 x-text="route.name === 'category-edit' ? 'Edit category' : 'Create category'"></h1>
+          <form @submit.prevent="submitCategoryForm()">
+            <label class="field">
+              <span>Name</span>
+              <input x-model="categoryForm.name" required />
+            </label>
+            <label class="field">
+              <span>Description</span>
+              <textarea x-model="categoryForm.description" rows="3"></textarea>
+            </label>
+            <p x-show="formError" class="error" x-text="formError"></p>
+            <button
+              type="submit"
+              :disabled="formSaving"
+              x-text="route.name === 'category-edit' ? 'Save' : 'Create'"
+            ></button>
+          </form>
+        </section>
+
+        <!-- Category detail -->
+        <section class="panel" x-show="route.name === 'category-detail'" x-cloak>
+          <template x-if="currentCategory">
+            <div>
+              <div class="toolbar space">
+                <h1 x-text="currentCategory.name"></h1>
+                <div class="actions" x-show="canWrite">
+                  <a class="button secondary" :href="`#/categories/${currentCategory.id}/edit`">Edit</a>
+                  <button class="secondary" type="button" @click="deleteCategory(currentCategory.id)">Delete</button>
+                </div>
+              </div>
+              <p x-text="currentCategory.description || 'No description'"></p>
+              <a href="#/categories">← Back to categories</a>
+            </div>
+          </template>
+          <p x-show="detailError" class="error" x-text="detailError"></p>
+          <p x-show="!currentCategory && !detailError">Loading…</p>
+        </section>
+
+        <!-- Stats -->
+        <section x-show="route.name === 'stats'" x-cloak>
+          <h1>Item stats</h1>
+          <template x-if="stats">
+            <div>
+              <div class="metrics">
+                <div class="metric">
+                  <strong>Total</strong>
+                  <div x-text="stats.total_items"></div>
+                </div>
+                <div class="metric">
+                  <strong>Average</strong>
+                  <div x-text="money(stats.average_price)"></div>
+                </div>
+                <div class="metric">
+                  <strong>Min</strong>
+                  <div x-text="money(stats.min_price)"></div>
+                </div>
+                <div class="metric">
+                  <strong>Max</strong>
+                  <div x-text="money(stats.max_price)"></div>
+                </div>
+                <div class="metric">
+                  <strong>Uncategorized</strong>
+                  <div x-text="stats.uncategorized_count"></div>
+                </div>
+              </div>
+              <div class="panel" style="margin-top: 1rem" x-show="stats.by_category.length">
+                <h2>By category</h2>
+                <ul class="list">
+                  <template x-for="row in stats.by_category" :key="row.category_id">
+                    <li>
+                      <span>
+                        <span x-text="row.category_name"></span>
+                        (<span>(</span><span x-text="row.item_count"></span><span>)</span>
+                      </span>
+                      <span><span x-text="money(row.average_price)"></span> avg</span>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </div>
+          </template>
+          <p x-show="!stats" class="muted">Loading…</p>
+        </section>
+
+        <!-- Login -->
+        <section class="panel" x-show="route.name === 'login'" x-cloak>
+          <h1 x-text="registerMode ? 'Register' : 'Sign in'"></h1>
+          <p>JWT auth for write endpoints. Reads work without signing in.</p>
+          <form @submit.prevent="submitAuth()">
+            <label class="field">
+              <span>Email</span>
+              <input x-model="loginEmail" type="email" required />
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input x-model="loginPassword" type="password" minlength="8" required />
+            </label>
+            <button type="submit" :disabled="authLoading" x-text="registerMode ? 'Create account' : 'Sign in'"></button>
+          </form>
+          <button class="linkish" type="button" @click="registerMode = !registerMode" style="margin-top: 0.75rem">
+            <span x-text="registerMode ? 'Already have an account? Sign in' : 'Need an account? Register'"></span>
+          </button>
+          <p x-show="authError" class="error" x-text="authError"></p>
+        </section>
+
+        <!-- Settings -->
+        <section class="panel" x-show="route.name === 'settings'" x-cloak>
+          <h1>Settings</h1>
+          <label class="field">
+            <span>Use mock data</span>
+            <input type="checkbox" :checked="useMock" @change="onMockToggle($event)" />
+          </label>
+          <label class="field">
+            <span>Base URL</span>
+            <input x-model="baseUrl" @change="saveSettings()" />
+          </label>
+          <p x-show="isAuthenticated">
+            Signed in as <span x-text="user?.email ?? '…'"></span>
+          </p>
+          <p x-show="!isAuthenticated">Not signed in</p>
+          <p class="muted">Mock mode allows writes without login (`canWrite`).</p>
+        </section>
+
+        <!-- Not found -->
+        <section class="panel" x-show="route.name === 'not-found'" x-cloak>
+          <h1>Not found</h1>
+          <p>Unknown route. <a href="#/items">Go to items</a></p>
+        </section>
+      </main>
+    </div>
+
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+    </style>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "name": "alpine-101",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "alpinejs": "^3.14.9"
+  },
+  "devDependencies": {
+    "@types/alpinejs": "^3.13.11",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}
